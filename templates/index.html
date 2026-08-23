@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FREQUENCY — Cross-Sense Reasoning Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <span class="pulse-wave"></span>
+                    <span class="pulse-wave wave-2"></span>
+                    <span class="pulse-wave wave-3"></span>
+                </div>
+                <div class="brand-text">
+                    <h1>FREQUENCY</h1>
+                    <span class="tag">Cross-Sense AI</span>
+                </div>
+            </div>
+
+            <div class="sidebar-action-wrap">
+                <button id="new-chat-btn" class="btn btn-primary btn-full">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>New Session</span>
+                </button>
+            </div>
+
+            <!-- Modality Status Indicators (All 6 Phases Live!) -->
+            <div class="modality-panel">
+                <div class="section-heading">SENSORY MODALITIES</div>
+                <div class="modality-item active">
+                    <span class="modality-icon">📋</span>
+                    <span class="modality-name">Input Schema</span>
+                    <span class="modality-status active">v1.4</span>
+                </div>
+                <div class="modality-item active">
+                    <span class="modality-icon">📝</span>
+                    <span class="modality-name">Text Signals</span>
+                    <span class="modality-status active">Live (Ph 2)</span>
+                </div>
+                <div class="modality-item active">
+                    <span class="modality-icon">🎙️</span>
+                    <span class="modality-name">Voice Acoustics</span>
+                    <span class="modality-status active">Live (Ph 3)</span>
+                </div>
+                <div class="modality-item active">
+                    <span class="modality-icon">⏱️</span>
+                    <span class="modality-name">Daily Context</span>
+                    <span class="modality-status active">Live (Ph 4)</span>
+                </div>
+                <div class="modality-item active">
+                    <span class="modality-icon">📊</span>
+                    <span class="modality-name">Personal Baseline</span>
+                    <span class="modality-status active">Live (Ph 5)</span>
+                </div>
+                <div class="modality-item active">
+                    <span class="modality-icon">⚡</span>
+                    <span class="modality-name">Fusion Matrix</span>
+                    <span class="modality-status active">Live (Ph 6)</span>
+                </div>
+            </div>
+
+            <!-- Model Selector & Footer -->
+            <div class="sidebar-footer">
+                <div class="model-select-wrap">
+                    <label for="model-select" class="section-heading">REASONING BACKEND</label>
+                    <select id="model-select" class="model-dropdown">
+                        <option value="{{ default_model }}">{{ default_model }} (Default)</option>
+                    </select>
+                </div>
+
+                <div class="system-status-indicator">
+                    <span id="status-dot" class="status-dot offline"></span>
+                    <span id="status-text" class="status-label">Connecting...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat & Evidence Area -->
+        <main class="chat-main">
+            <!-- Top Header -->
+            <header class="chat-header">
+                <div class="header-left">
+                    <div class="active-session-title">
+                        <h2>Reasoning Console</h2>
+                        <span id="active-model-badge" class="badge badge-info">{{ default_model }}</span>
+                        <span class="badge badge-success">Fusion Active</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <!-- 7-Day Trends Dashboard Button -->
+                    <button id="toggle-trends-btn" class="btn btn-secondary btn-sm" title="View 7-Day Multi-Modal Trends & Stability">
+                        <span>📈 Trends</span>
+                    </button>
+                    <!-- Daily Context Quick-Tracker Button -->
+                    <button id="toggle-context-btn" class="btn btn-secondary btn-sm" title="Configure Daily Context (Sleep, Workload, Mood)">
+                        <span>🌙 Context:</span>
+                        <span id="header-context-summary" class="mono" style="color:var(--accent-emerald);">7.0h • Normal • Mood 7</span>
+                    </button>
+                    <button id="toggle-schema-btn" class="btn btn-secondary btn-sm" title="View Evidence Package & Fusion Matrix">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                        <span>Evidence & Fusion</span>
+                    </button>
+                    <span id="backend-latency" class="latency-pill">Latency: -- ms</span>
+                </div>
+            </header>
+
+            <!-- Daily Context Check-In Popup / Bar (Phase 4) -->
+            <div id="context-bar" class="context-bar" style="display: none;">
+                <div class="context-bar-inner">
+                    <div class="context-input-group">
+                        <label for="ctx-sleep-input">Sleep Duration:</label>
+                        <input type="number" id="ctx-sleep-input" min="0" max="16" step="0.5" value="7.0" class="context-num-input">
+                        <span class="stat-label">hrs</span>
+                    </div>
+                    <div class="context-input-group">
+                        <label for="ctx-workload-select">Workload:</label>
+                        <select id="ctx-workload-select" class="context-select">
+                            <option value="light">Light</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="heavy">Heavy</option>
+                            <option value="burnout">Burnout Risk</option>
+                        </select>
+                    </div>
+                    <div class="context-input-group">
+                        <label for="ctx-mood-input">Mood (1-10):</label>
+                        <input type="range" id="ctx-mood-input" min="1" max="10" value="7" class="context-range-input">
+                        <span id="ctx-mood-val" class="mono" style="font-weight:700;color:var(--accent-emerald);">7</span>
+                    </div>
+                    <button type="button" id="save-context-btn" class="btn btn-primary btn-sm">Update Context</button>
+                </div>
+            </div>
+
+            <!-- Evidence Inspector & Multimodal Telemetry Drawer -->
+            <div id="schema-drawer" class="schema-drawer" style="display: none;">
+                <div class="drawer-header">
+                    <div class="drawer-title">
+                        <span class="drawer-icon">⚡</span>
+                        <h3>Cross-Sense Multimodal & Fusion Inspector</h3>
+                    </div>
+                    <div class="drawer-tabs">
+                        <button id="tab-btn-fusion" class="tab-btn active">Fusion Matrix (Ph 6)</button>
+                        <button id="tab-btn-baseline" class="tab-btn">Personal Baseline (Ph 5)</button>
+                        <button id="tab-btn-voice" class="tab-btn">Voice Acoustics (Ph 3)</button>
+                        <button id="tab-btn-text" class="tab-btn">Text Signals (Ph 2)</button>
+                        <button id="tab-btn-prompt" class="tab-btn">Compiled Prompt</button>
+                        <button id="tab-btn-json" class="tab-btn">JSON Schema</button>
+                    </div>
+                    <button id="close-schema-btn" class="btn-icon-only btn-sm">&times;</button>
+                </div>
+                <div class="drawer-body">
+                    <!-- Tab 0: Cross-Sense Fusion Matrix (Phase 6 Capstone) -->
+                    <div id="drawer-view-fusion" class="tab-view active">
+                        <div class="text-signals-dashboard">
+                            <div class="signal-card-grid">
+                                <div class="signal-card">
+                                    <div class="signal-card-label">COMPOSITE ENERGY INDEX</div>
+                                    <div class="signal-val-row">
+                                        <span id="fusion-energy-val" class="stat-val mono" style="font-size:20px;color:var(--accent-emerald);">72.0%</span>
+                                        <span id="fusion-energy-badge" class="badge badge-success">Balanced</span>
+                                    </div>
+                                    <div class="valence-bar-wrapper">
+                                        <div class="valence-bar-track">
+                                            <div id="fusion-energy-bar" class="valence-bar-fill" style="width: 72%;"></div>
+                                        </div>
+                                        <div class="valence-labels">
+                                            <span>0% Depleted</span>
+                                            <span>50%</span>
+                                            <span>100% High Flow</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">COGNITIVE FOCUS & CLARITY</div>
+                                    <div class="signal-val-row">
+                                        <span id="fusion-focus-val" class="stat-val mono" style="font-size:20px;color:var(--accent-blue);">78.0%</span>
+                                        <span class="badge badge-info">Low Friction</span>
+                                    </div>
+                                    <div class="valence-bar-wrapper">
+                                        <div class="valence-bar-track">
+                                            <div id="fusion-focus-bar" class="valence-bar-fill" style="width: 78%;background:var(--accent-blue);"></div>
+                                        </div>
+                                        <div class="valence-labels">
+                                            <span>0% Fragmented</span>
+                                            <span>100% Laser Focus</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">MULTI-SENSE ALIGNMENT</div>
+                                    <div class="signal-val-row">
+                                        <span id="fusion-align-val" class="stat-val mono" style="font-size:20px;color:var(--accent-purple);">90.0%</span>
+                                        <span class="badge badge-success">Harmonized</span>
+                                    </div>
+                                    <div class="stat-label" style="margin-top:4px;">Consistency across Text, Voice & Context</div>
+                                </div>
+
+                                <div class="signal-card" style="grid-column: span 2;">
+                                    <div class="signal-card-label">HOLISTIC PATTERN ARCHETYPE</div>
+                                    <div id="fusion-archetype-title" class="stat-val" style="font-size:14px;color:var(--accent-amber);font-weight:700;">
+                                        Steady Baseline Equilibrium
+                                    </div>
+                                    <div id="fusion-archetype-desc" class="stat-label" style="font-size:11px;color:var(--text-secondary);margin-top:2px;">
+                                        All sensory streams are operating steadily within your typical personal baseline parameters.
+                                    </div>
+                                </div>
+
+                                <div class="signal-card" style="grid-column: span 2;">
+                                    <div class="signal-card-label">ACTIONABLE MICRO-RECOMMENDATIONS</div>
+                                    <div id="fusion-recs-container" class="tags-container" style="flex-direction:column;align-items:flex-start;gap:6px;">
+                                        <span class="tag-pill subtle">Loading restorative suggestions...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 1: Personal Baseline & Cross-Modal Correlations (Phase 5) -->
+                    <div id="drawer-view-baseline" class="tab-view" style="display: none;">
+                        <div class="text-signals-dashboard">
+                            <div class="signal-card-grid">
+                                <div class="signal-card">
+                                    <div class="signal-card-label">7-DAY HISTORICAL BASELINES</div>
+                                    <div class="metric-mini-grid">
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Base Sleep</span>
+                                            <span id="base-sleep-val" class="stat-val mono">7.4h</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Base Energy</span>
+                                            <span id="base-energy-val" class="stat-val mono">0.038</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Base Tempo</span>
+                                            <span id="base-tempo-val" class="stat-val mono">145 WPM</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">SESSION DEVIATIONS (Δ% vs BASELINE)</div>
+                                    <div id="base-deviations-container" class="tags-container">
+                                        <span class="tag-pill subtle">Within normal ranges</span>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card" style="grid-column: span 2;">
+                                    <div class="signal-card-label">CROSS-MODAL CORRELATIONS IDENTIFIED</div>
+                                    <div id="base-correlations-container" class="tags-container" style="flex-direction:column;align-items:flex-start;gap:6px;">
+                                        <span class="tag-pill subtle">No adverse multi-sense friction detected.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Voice Acoustics Telemetry (Phase 3) -->
+                    <div id="drawer-view-voice" class="tab-view" style="display: none;">
+                        <div class="text-signals-dashboard">
+                            <div class="signal-card-grid">
+                                <div class="signal-card">
+                                    <div class="signal-card-label">PITCH & INFLECTION (F0)</div>
+                                    <div class="signal-val-row">
+                                        <span id="sig-pitch-hz" class="stat-val mono" style="font-size:16px;">-- Hz</span>
+                                        <span id="sig-pitch-variation" class="badge badge-info">±0.0 Hz</span>
+                                    </div>
+                                    <div class="stat-label" style="margin-top:4px;">Fundamental frequency & variance</div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">VOCAL ENERGY (RMS)</div>
+                                    <div class="signal-val-row">
+                                        <span id="sig-vocal-energy" class="stat-val mono" style="font-size:16px;">0.0000</span>
+                                        <span id="sig-energy-badge" class="badge badge-neutral">No Audio</span>
+                                    </div>
+                                    <div class="stat-label" style="margin-top:4px;">Root-mean-square amplitude</div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">TEMPORAL DYNAMICS & PAUSES</div>
+                                    <div class="metric-mini-grid">
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Speech Rate</span>
+                                            <span id="sig-speech-rate" class="stat-val mono">-- WPM</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Pause Ratio</span>
+                                            <span id="sig-pause-ratio" class="stat-val mono">--%</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Duration</span>
+                                            <span id="sig-audio-duration" class="stat-val mono">0.0s</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">SPEECH TRANSCRIPT</div>
+                                    <div id="sig-transcript-preview" class="stat-val" style="font-size:12px;color:var(--text-secondary);max-height:48px;overflow-y:auto;">
+                                        Record voice or upload an MP3 file to transcribe.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Text Signals Telemetry (Phase 2) -->
+                    <div id="drawer-view-text" class="tab-view" style="display: none;">
+                        <div class="text-signals-dashboard">
+                            <div class="signal-card-grid">
+                                <div class="signal-card">
+                                    <div class="signal-card-label">SENTIMENT & VALENCE</div>
+                                    <div class="signal-val-row">
+                                        <span id="sig-sentiment-badge" class="badge badge-neutral">Neutral</span>
+                                        <span id="sig-valence-score" class="mono text-muted">0.00</span>
+                                    </div>
+                                    <div class="valence-bar-wrapper">
+                                        <div class="valence-bar-track">
+                                            <div id="sig-valence-fill" class="valence-bar-fill" style="width: 50%;"></div>
+                                        </div>
+                                        <div class="valence-labels">
+                                            <span>-1.0 Negative</span>
+                                            <span>0.0</span>
+                                            <span>+1.0 Positive</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">DETECTED EMOTIONS</div>
+                                    <div id="sig-emotions-container" class="tags-container">
+                                        <span class="tag-pill subtle">None detected</span>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">THEMES & TOPICS</div>
+                                    <div id="sig-themes-container" class="tags-container">
+                                        <span class="tag-pill subtle">General conversation</span>
+                                    </div>
+                                </div>
+
+                                <div class="signal-card">
+                                    <div class="signal-card-label">LINGUISTIC & COGNITIVE LOAD</div>
+                                    <div class="metric-mini-grid">
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Cognitive Load</span>
+                                            <span id="sig-cognitive-load" class="stat-val">Moderate</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Word Count</span>
+                                            <span id="sig-word-count" class="stat-val mono">0</span>
+                                        </div>
+                                        <div class="mini-stat">
+                                            <span class="stat-label">Confidence</span>
+                                            <span id="sig-confidence" class="stat-val mono">--</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 4: Compiled LLM Evidence Prompt -->
+                    <div id="drawer-view-prompt" class="tab-view" style="display: none;">
+                        <p class="drawer-desc">
+                            The exact evidence document compiled by <code>prompt_builder.py</code>, including context, baseline shifts, and cross-sense fusion.
+                        </p>
+                        <pre id="compiled-prompt-view" class="code-block mono">Compiling prompt...</pre>
+                    </div>
+
+                    <!-- Tab 5: Raw JSON Evidence Package -->
+                    <div id="drawer-view-json" class="tab-view" style="display: none;">
+                        <p class="drawer-desc">
+                            Structured <code>FrequencyInput</code> dataclass containing all multimodal sensory streams.
+                        </p>
+                        <pre id="schema-json-view" class="code-block mono">Loading FrequencyInput package...</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 7-Day Trends Dashboard Modal (Phase 6) -->
+            <div id="trends-modal" class="trends-modal" style="display: none;">
+                <div class="trends-modal-content">
+                    <div class="trends-modal-header">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:18px;">📈</span>
+                            <h3>7-Day Multi-Modal Trends & Stability</h3>
+                        </div>
+                        <button id="close-trends-btn" class="btn-icon-only btn-sm">&times;</button>
+                    </div>
+                    <div class="trends-modal-body">
+                        <div id="trends-chart-container" class="trends-chart-container">
+                            <!-- Dynamic trend bars inserted via app.js -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Messages Container -->
+            <div id="chat-messages" class="chat-messages">
+                <!-- Welcome Hero State -->
+                <div id="welcome-hero" class="welcome-hero">
+                    <div class="hero-icon">
+                        <span class="pulse-wave"></span>
+                        <span class="pulse-wave wave-2"></span>
+                        <span class="pulse-wave wave-3"></span>
+                    </div>
+                    <h3>FREQUENCY Reasoning Console</h3>
+                    <p class="hero-desc">
+                        Cross-Sense AI signal analysis. FREQUENCY combines <strong>voice acoustics</strong>, <strong>written language</strong>, <strong>sleep/workload context</strong>, and your <strong>personal baseline</strong> to discover your focus and energy patterns.
+                    </p>
+
+                    <!-- Starter Suggestions -->
+                    <div class="suggestions-grid">
+                        <button class="suggestion-chip" data-prompt="I only slept 4 hours and had back-to-back stressful meetings today.">
+                            <span class="chip-title">Sleep Deficit & High Workload</span>
+                            <span class="chip-text">Test baseline deviation and cross-modal fatigue correlation</span>
+                        </button>
+                        <button class="suggestion-chip" data-prompt="I woke up feeling super rested, had an awesome workout, and feel energized!">
+                            <span class="chip-title">High Energy Recovery</span>
+                            <span class="chip-text">Test positive baseline shift and recovery alignment</span>
+                        </button>
+                        <button class="suggestion-chip" data-prompt="Why do I feel so unfocused even though I've been sitting at my desk all day?">
+                            <span class="chip-title">Focus & Cognitive Friction</span>
+                            <span class="chip-text">Analyze subtle linguistic markers against lifestyle context</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Bar with Voice & File Controls -->
+            <div class="chat-input-wrapper">
+                <form id="chat-form" class="chat-input-form">
+                    <div class="input-container">
+                        <input type="file" id="audio-file-input" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.webm" style="display:none;">
+
+                        <button type="button" id="upload-audio-btn" class="input-action-btn" title="Upload Audio File (.mp3, .wav, .ogg, .m4a)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                            </svg>
+                        </button>
+
+                        <button type="button" id="mic-record-btn" class="input-action-btn mic-btn" title="Speak to FREQUENCY (Click to Record / Stop)">
+                            <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                            <span id="recording-time" class="recording-timer" style="display:none;">0:00</span>
+                        </button>
+
+                        <textarea 
+                            id="user-input" 
+                            class="chat-textarea" 
+                            placeholder="Share your thoughts, speak via mic 🎙️, or upload an MP3/WAV..."
+                            rows="1"
+                            required
+                        ></textarea>
+
+                        <button type="submit" id="send-btn" class="send-btn" title="Send message">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+                <div class="input-disclaimer">
+                    FREQUENCY is for self-awareness and pattern discovery, not medical diagnosis.
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modular JS Scripts -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
