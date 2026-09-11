@@ -3,9 +3,9 @@ import os
 import tempfile
 import numpy as np
 import soundfile as sf
-import speech_recognition as sr
 from typing import Dict, Any, Tuple, Optional
 from schema import VoiceSignalData
+from faster_whisper import WhisperModel
 
 class VoiceAnalyzer:
     """
@@ -165,26 +165,53 @@ class VoiceAnalyzer:
     @classmethod
     def transcribe(cls, audio_bytes: bytes, filename: str = "audio.wav") -> str:
         """
-        Transcribe audio bytes using SpeechRecognition.
+        Transcribe audio locally using Whisper.
+        No audio is sent to an external speech-recognition service.
         """
-        recognizer = sr.Recognizer()
-        
-        samples, samplerate = cls.load_audio(audio_bytes, filename)
-        
-        wav_io = io.BytesIO()
-        sf.write(wav_io, samples, samplerate, format='WAV', subtype='PCM_16')
-        wav_io.seek(0)
+        try:
+            samples, samplerate = cls.load_audio(audio_bytes, filename)
 
-        with sr.AudioFile(wav_io) as source:
-            audio_data = recognizer.record(source)
+            # Create a temporary WAV file for Whisper
+            suffix = os.path.splitext(filename)[1] or ".wav"
+
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                delete=False
+            ) as tmp:
+                temp_path = tmp.name
+
             try:
-                transcript = recognizer.recognize_google(audio_data)
-                return transcript.strip()
-            except sr.UnknownValueError:
-                return "Audio recorded (quiet or unclear speech)"
-            except Exception as e:
-                return ""
+                sf.write(
+                    temp_path,
+                    samples,
+                    samplerate,
+                    subtype="PCM_16"
+                )
 
+                model = cls.get_whisper_model()
+
+                segments, info = model.transcribe(
+                    temp_path,
+                    beam_size=5,
+                    vad_filter=True
+                )
+
+                transcript = " ".join(
+                    segment.text.strip()
+                    for segment in segments
+                    if segment.text.strip()
+                )
+
+                return transcript.strip()
+
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+        except Exception as e:
+            print(f"Local Whisper transcription error: {e}")
+            return ""
+        
     @classmethod
     def analyze_audio_data(
         cls,
@@ -223,3 +250,21 @@ class VoiceAnalyzer:
         )
 
         return voice_signals, transcript
+    _whisper_model = None
+
+    @classmethod
+    def get_whisper_model(cls):
+        """Load Whisper locally once and reuse it."""
+        if cls._whisper_model is None:
+            model_path = os.environ.get(
+                "WHISPER_MODEL_PATH",
+                "models/whisper-base"
+            )
+
+            cls._whisper_model = WhisperModel(
+                model_path,
+                device="cpu",
+                compute_type="int8"
+            )
+
+        return cls._whisper_model

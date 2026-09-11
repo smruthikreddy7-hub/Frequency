@@ -12,7 +12,58 @@ class LLMClient:
     def __init__(self, base_url=None, default_model=None):
         self.base_url = (base_url or Config.OLLAMA_BASE_URL).rstrip("/")
         self.default_model = default_model or Config.DEFAULT_LLM_MODEL
+    def preload_model(self):
+        """Load the configured Ollama model into memory at application startup."""
+        target_model = self.default_model
+        url = f"{self.base_url}/api/generate"
 
+        payload = {
+            "model": target_model,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": Config.OLLAMA_KEEP_ALIVE,
+            "options": {
+                "num_ctx": Config.OLLAMA_NUM_CTX,
+                "num_predict": 1,
+                "num_thread": Config.OLLAMA_NUM_THREAD
+            }
+        }
+
+        start_time = time.time()
+
+        try:
+            logger.info("Preloading Ollama model '%s'...", target_model)
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=120
+            )
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            if response.status_code == 200:
+                logger.info(
+                    "Ollama model '%s' preloaded successfully in %.2f seconds.",
+                    target_model,
+                    duration_ms / 1000
+                )
+            else:
+                logger.warning(
+                    "Failed to preload Ollama model '%s'. HTTP %s: %s",
+                    target_model,
+                    response.status_code,
+                    response.text[:500]
+                )
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "Could not preload Ollama model '%s': %s",
+                target_model,
+                e
+            )
+            
     def get_default_options(self, custom_options=None):
         """Construct optimized runtime options for Ollama."""
         opts = {
@@ -77,11 +128,12 @@ class LLMClient:
                 for line in resp.iter_lines():
                     if not line:
                         continue
+
                     try:
                         chunk_obj = json.loads(line.decode("utf-8"))
+
                         text_chunk = chunk_obj.get("response", "")
                         done = chunk_obj.get("done", False)
-
                         # Handle reasoning/thinking tags gracefully if emitted
                         if "<think>" in text_chunk:
                             in_thinking_block = True

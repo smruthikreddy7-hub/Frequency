@@ -87,10 +87,15 @@ def create_app(config_class=Config):
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     # Initialize LLM Client & Database
+    # Initialize LLM Client & Database
     llm_client = LLMClient(
         base_url=app.config["OLLAMA_BASE_URL"],
         default_model=app.config["DEFAULT_LLM_MODEL"]
     )
+
+    # Preload the local LLM before accepting user requests
+    llm_client.preload_model()
+
     Database.init_db()
 
     @app.route("/login", methods=["GET", "POST"])
@@ -250,11 +255,12 @@ def create_app(config_class=Config):
         return jsonify(FrequencyInput.get_json_schema()), 200
 
     @app.route("/api/context", methods=["GET", "POST"])
+    @login_required
     def handle_context():
         """
         Get or update user's daily lifestyle context (Phase 4).
         """
-        user_id = request.args.get("user_id", "default_user")
+        user_id = session["user_id"]
 
         if request.method == "POST":
             if not request.is_json:
@@ -284,43 +290,52 @@ def create_app(config_class=Config):
         }), 200
 
     @app.route("/api/baseline", methods=["GET"])
+    @login_required
     def get_baseline():
         """
-        Retrieve personal baseline profile and calculated deviations (Phase 5).
+        Retrieve the authenticated user's personal baseline.
         """
-        user_id = request.args.get("user_id", "default_user")
+        user_id = session["user_id"]
+
         context_data = Database.get_context(user_id=user_id)
-        baseline_with_deviations = BaselineEngine.compute_deviations_and_correlations(
-            context_data=context_data
+
+        baseline_with_deviations = (
+            BaselineEngine.compute_deviations_and_correlations(
+                context_data=context_data
+            )
         )
+
         return jsonify({
             "status": "success",
             "baseline": baseline_with_deviations.to_dict(),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }), 200
-
+    
     @app.route("/api/trends", methods=["GET"])
+    @login_required
     def get_trends():
         """
-        Retrieve 7-day multi-modal trends for dashboard (Phase 6).
+        Retrieve 7-day trends for the authenticated user.
         """
-        user_id = request.args.get("user_id", "default_user")
+        user_id = session["user_id"]
+
         trends = Database.get_7day_trends(user_id=user_id)
+
         return jsonify({
             "status": "success",
             "trends": trends,
             "count": len(trends),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }), 200
-
     @app.route("/api/fusion/synthesize", methods=["POST"])
+    @login_required
     def synthesize_fusion():
         """
         Execute Cross-Sense Fusion on a FrequencyInput package (Phase 6).
         """
         if not request.is_json:
             return jsonify({"error": "Request payload must be JSON."}), 400
-
+        user_id = session["user_id"]
         data = request.get_json()
         input_pkg = FrequencyInput.from_dict(data)
 
@@ -328,7 +343,8 @@ def create_app(config_class=Config):
             input_pkg.text_data = TextAnalyzer.analyze(input_pkg.user_prompt)
 
         if not input_pkg.contextual_data:
-            input_pkg.contextual_data = Database.get_context(user_id="default_user")
+            input_pkg.contextual_data = Database.get_context(user_id=user_id)
+            
 
         fusion_res = FusionEngine.synthesize(input_pkg)
         return jsonify({
@@ -450,9 +466,10 @@ def create_app(config_class=Config):
             "compiled_prompt": PromptBuilder.build_evidence_prompt(input_package),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }), 200
-
     @app.route("/api/chat/stream", methods=["POST"])
+    @login_required
     def chat_stream():
+        user_id = session["user_id"]
         """
         Real-time streaming conversational reasoning endpoint with full multimodal cross-sense synthesis.
         """
@@ -474,7 +491,7 @@ def create_app(config_class=Config):
 
         # 2. Context Auto-Population (Phase 4)
         if not input_pkg.contextual_data:
-            input_pkg.contextual_data = Database.get_context(user_id="default_user")
+            input_pkg.contextual_data = Database.get_context(user_id=user_id)
 
         # 3. Baseline & Cross-Modal Deviations (Phase 5)
         raw_context = input_pkg.contextual_data.to_dict() if isinstance(input_pkg.contextual_data, ContextData) else input_pkg.contextual_data
@@ -504,13 +521,20 @@ def create_app(config_class=Config):
                 prompt=input_pkg.user_prompt,
                 modality=modality_label,
                 text_signals=raw_text,
-                voice_signals=raw_voice
+                voice_signals=raw_voice,
+                user_id=user_id
             )
         except Exception as e:
             logger.warning("Failed to log session history: %s", str(e))
 
         compiled_evidence = PromptBuilder.build_evidence_prompt(input_pkg)
         system_prompt = PromptBuilder.build_system_prompt()
+        logger.info("=" * 80)
+        logger.info("FREQUENCY — LIVE LLM CONTEXT")
+        logger.info("USER PROMPT: %s", input_pkg.user_prompt)
+        logger.info("-" * 80)
+        logger.info("%s", compiled_evidence)
+        logger.info("=" * 80)
 
         logger.info("Streaming reasoning request for prompt: '%s' (model: %s)", input_pkg.user_prompt[:50], model_override or app.config["DEFAULT_LLM_MODEL"])
 
@@ -530,13 +554,13 @@ def create_app(config_class=Config):
                 "X-Accel-Buffering": "no"
             }
         )
-
     @app.route("/api/chat", methods=["POST"])
+    @login_required
     def chat():
         """Synchronous reasoning endpoint fallback."""
         if not request.is_json:
             return jsonify({"error": "Request payload must be JSON."}), 400
-
+        user_id = session["user_id"]
         data = request.get_json()
         model_override = data.get("model", None)
 
@@ -550,7 +574,7 @@ def create_app(config_class=Config):
             input_pkg.text_data = TextAnalyzer.analyze(input_pkg.user_prompt)
 
         if not input_pkg.contextual_data:
-            input_pkg.contextual_data = Database.get_context(user_id="default_user")
+            input_pkg.contextual_data = Database.get_context(user_id=user_id)
 
         raw_context = input_pkg.contextual_data.to_dict() if isinstance(input_pkg.contextual_data, ContextData) else input_pkg.contextual_data
         raw_text = input_pkg.text_data.to_dict() if isinstance(input_pkg.text_data, TextSignalData) else input_pkg.text_data

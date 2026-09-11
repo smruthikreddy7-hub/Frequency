@@ -436,28 +436,328 @@ class Database:
 
     @classmethod
     def get_7day_trends(cls, user_id: str = "default_user") -> List[Dict[str, Any]]:
-        """Get synthesized 7-day multi-modal trend records for the dashboard."""
-        contexts = cls.get_historical_context(user_id=user_id, limit=7)
+        """
+        Get synthesized 7-day multimodal trend records.
+
+        Combines:
+        - Daily lifestyle context
+        - Text signals
+        - Voice signals
+        - Energy Index
+        - Focus Index
+        - Alignment Score
+        """
+
+        contexts = cls.get_historical_context(
+            user_id=user_id,
+            limit=7
+        )
         contexts.reverse()  # Chronological order
 
+        sessions = cls.get_historical_sessions(
+            user_id=user_id,
+            limit=100
+        )
+
+        # ------------------------------------------------------------
+        # Group session signals by calendar date
+        # ------------------------------------------------------------
+        sessions_by_date = {}
+
+        for session in sessions:
+            timestamp = session.get("timestamp")
+
+            if not timestamp:
+                continue
+
+            try:
+                session_date = timestamp[:10]
+            except (TypeError, IndexError):
+                continue
+
+            sessions_by_date.setdefault(session_date, []).append(session)
+
         trend_points = []
+
         for c in contexts:
             d_str = c["date"]
-            sleep = c["sleep_hours"]
-            mood = c["mood_score"]
-            workload = c["workload"]
-            
-            # Simple composite estimate for trend point
-            energy = min(100.0, max(20.0, (sleep / 7.5) * 60.0 + (mood / 10.0) * 40.0))
-            focus = 85.0 if workload == "light" else (75.0 if workload == "normal" else 55.0)
 
+            sleep = c.get("sleep_hours")
+            mood = c.get("mood_score")
+            workload = c.get("workload", "normal")
+            activity = c.get("activity_level", "moderate")
+
+            day_sessions = sessions_by_date.get(d_str, [])
+
+            # --------------------------------------------------------
+            # Aggregate multimodal session signals for this day
+            # --------------------------------------------------------
+            valences = [
+                s["emotional_valence"]
+                for s in day_sessions
+                if s.get("emotional_valence") is not None
+            ]
+
+            vocal_energies = [
+                s["vocal_energy_rms"]
+                for s in day_sessions
+                if s.get("vocal_energy_rms") is not None
+            ]
+
+            speech_rates = [
+                s["speech_rate_wpm"]
+                for s in day_sessions
+                if s.get("speech_rate_wpm") is not None
+            ]
+
+            pause_ratios = [
+                s["pause_duration_ratio"]
+                for s in day_sessions
+                if s.get("pause_duration_ratio") is not None
+            ]
+
+            cognitive_loads = [
+                s["cognitive_load"]
+                for s in day_sessions
+                if s.get("cognitive_load")
+            ]
+
+            # --------------------------------------------------------
+            # Daily averages
+            # --------------------------------------------------------
+            avg_valence = (
+                sum(valences) / len(valences)
+                if valences else None
+            )
+
+            avg_vocal_energy = (
+                sum(vocal_energies) / len(vocal_energies)
+                if vocal_energies else None
+            )
+
+            avg_speech_rate = (
+                sum(speech_rates) / len(speech_rates)
+                if speech_rates else None
+            )
+
+            avg_pause_ratio = (
+                sum(pause_ratios) / len(pause_ratios)
+                if pause_ratios else None
+            )
+
+            # --------------------------------------------------------
+            # Cognitive load → numeric focus signal
+            # --------------------------------------------------------
+            if cognitive_loads:
+                load_scores = []
+
+                for load in cognitive_loads:
+                    if load == "low":
+                        load_scores.append(90.0)
+                    elif load == "moderate":
+                        load_scores.append(75.0)
+                    elif load == "elevated":
+                        load_scores.append(55.0)
+                    else:
+                        load_scores.append(40.0)
+
+                avg_cognitive_load_score = (
+                    sum(load_scores) / len(load_scores)
+                )
+            else:
+                avg_cognitive_load_score = None
+
+            # --------------------------------------------------------
+            # Energy Index
+            #
+            # Uses the same signal families as FusionEngine.
+            # Daily trend is an observational dashboard metric.
+            # --------------------------------------------------------
+            energy_components = []
+            energy_weights = []
+
+            if sleep is not None:
+                sleep_score = max(
+                    20.0,
+                    min(100.0, (float(sleep) / 7.5) * 100.0)
+                )
+                energy_components.append(sleep_score)
+                energy_weights.append(0.35)
+
+            if avg_vocal_energy is not None:
+                # Normalize relative to a typical acoustic range.
+                vocal_score = max(
+                    20.0,
+                    min(100.0, (avg_vocal_energy / 0.040) * 100.0)
+                )
+                energy_components.append(vocal_score)
+                energy_weights.append(0.25)
+
+            if avg_speech_rate is not None:
+                if avg_speech_rate <= 145.0:
+                    speech_score = max(
+                        20.0,
+                        min(100.0, (avg_speech_rate / 145.0) * 100.0)
+                    )
+                else:
+                    speech_score = max(
+                        50.0,
+                        100.0 - ((avg_speech_rate - 145.0) * 0.5)
+                    )
+
+                energy_components.append(speech_score)
+                energy_weights.append(0.20)
+
+            if avg_valence is not None:
+                text_score = max(
+                    0.0,
+                    min(100.0, ((avg_valence + 1.0) / 2.0) * 100.0)
+                )
+                energy_components.append(text_score)
+                energy_weights.append(0.20)
+
+            if energy_components:
+                total_weight = sum(energy_weights)
+                energy_index = round(
+                    sum(
+                        score * weight
+                        for score, weight in zip(
+                            energy_components,
+                            energy_weights
+                        )
+                    ) / total_weight,
+                    1
+                )
+            else:
+                energy_index = None
+
+            # --------------------------------------------------------
+            # Focus Index
+            # --------------------------------------------------------
+            focus_components = []
+            focus_weights = []
+
+            if avg_pause_ratio is not None:
+                pause_score = max(
+                    15.0,
+                    min(
+                        100.0,
+                        (1.0 - (avg_pause_ratio / 0.5)) * 100.0
+                    )
+                )
+                focus_components.append(pause_score)
+                focus_weights.append(0.40)
+
+            if avg_cognitive_load_score is not None:
+                focus_components.append(avg_cognitive_load_score)
+                focus_weights.append(0.35)
+
+            workload_scores = {
+                "light": 85.0,
+                "normal": 80.0,
+                "heavy": 60.0,
+                "burnout": 40.0
+            }
+
+            workload_score = workload_scores.get(
+                workload,
+                70.0
+            )
+
+            focus_components.append(workload_score)
+            focus_weights.append(0.25)
+
+            focus_index = round(
+                sum(
+                    score * weight
+                    for score, weight in zip(
+                        focus_components,
+                        focus_weights
+                    )
+                ) / sum(focus_weights),
+                1
+            )
+
+            # --------------------------------------------------------
+            # Alignment Score
+            # --------------------------------------------------------
+            penalty = 0.0
+
+            if (
+                mood is not None
+                and avg_valence is not None
+            ):
+                if mood >= 8 and avg_valence <= -0.3:
+                    penalty += 30.0
+                elif mood <= 3 and avg_valence >= 0.4:
+                    penalty += 25.0
+
+            if (
+                mood is not None
+                and avg_vocal_energy is not None
+                and mood >= 8
+                and avg_vocal_energy < 0.015
+            ):
+                penalty += 25.0
+
+            if (
+                sleep is not None
+                and avg_valence is not None
+                and sleep < 5.0
+                and avg_valence > 0.6
+            ):
+                penalty += 15.0
+
+            alignment_score = round(
+                max(20.0, 100.0 - penalty),
+                1
+            )
+
+            # --------------------------------------------------------
+            # Final trend point
+            # --------------------------------------------------------
             trend_points.append({
                 "date": d_str,
                 "sleep_hours": sleep,
                 "mood_score": mood,
                 "workload": workload,
-                "energy_index": round(energy, 1),
-                "focus_index": round(focus, 1)
+                "activity_level": activity,
+
+                "text_valence": (
+                    round(avg_valence, 3)
+                    if avg_valence is not None
+                    else None
+                ),
+
+                "vocal_energy_rms": (
+                    round(avg_vocal_energy, 4)
+                    if avg_vocal_energy is not None
+                    else None
+                ),
+
+                "speech_rate_wpm": (
+                    round(avg_speech_rate, 1)
+                    if avg_speech_rate is not None
+                    else None
+                ),
+
+                "pause_duration_ratio": (
+                    round(avg_pause_ratio, 3)
+                    if avg_pause_ratio is not None
+                    else None
+                ),
+
+                "cognitive_load": (
+                    cognitive_loads[-1]
+                    if cognitive_loads
+                    else None
+                ),
+
+                "session_count": len(day_sessions),
+
+                "energy_index": energy_index,
+                "focus_index": focus_index,
+                "alignment_score": alignment_score
             })
 
         return trend_points

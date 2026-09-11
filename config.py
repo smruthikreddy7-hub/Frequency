@@ -1,5 +1,7 @@
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 class Config:
     """Application configuration for FREQUENCY."""
     
@@ -10,20 +12,24 @@ class Config:
     DEBUG = False
     HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
     PORT = int(os.environ.get("FLASK_PORT", 5000))
-    SECRET_KEY = os.environ.get("SECRET_KEY", "frequency-cross-sense-secret-2026")
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+    if not SECRET_KEY:
+        raise RuntimeError("SECRET_KEY environment variable is required")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
 
     # Authentication + Admin defaults
     ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
-    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminPass!123")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+    if not ADMIN_PASSWORD:
+        raise RuntimeError("ADMIN_PASSWORD environment variable is required")
     LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
     LOGIN_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "15"))
     DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "frequency.db"))
     
     # Ollama Local LLM Settings
     OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-    DEFAULT_LLM_MODEL = os.environ.get("DEFAULT_LLM_MODEL", "qwen3:8b")
+    DEFAULT_LLM_MODEL = os.environ.get("DEFAULT_LLM_MODEL", "qwen2.5:3b")
     OLLAMA_KEEP_ALIVE = "10m"
     
     # Token Budget & Context Window

@@ -23,54 +23,131 @@ class FusionEngine:
         scores = []
         weights = []
 
-        # 1. Sleep Component (Target: 7.5h -> 100%)
+        # Ensure baseline is always a dictionary
+        baseline = baseline or {}
+
+        # ============================================================
+        # 1. Sleep Component — Personal Baseline (35%)
+        # ============================================================
         sleep_hours = context.get("sleep_hours")
+        baseline_sleep = baseline.get("baseline_sleep_hours")
+
         if sleep_hours is not None:
-            # 4h -> 40%, 7.5h -> 100%, 9h -> 95%
-            s_score = max(10.0, min(100.0, (sleep_hours / 7.5) * 100.0))
-            if sleep_hours > 9.5:
-                s_score = 85.0  # Excessive sleep penalty
+            if baseline_sleep is not None and baseline_sleep > 0:
+                sleep_deviation = abs(
+                    sleep_hours - baseline_sleep
+                ) / baseline_sleep
+
+                # 100 = exactly at personal baseline.
+                # Larger deviation = lower score.
+                s_score = max(
+                    20.0,
+                    min(100.0, 100.0 - (sleep_deviation * 200.0))
+                )
+            else:
+                # Not enough personal history yet.
+                s_score = 70.0
+
             scores.append(s_score)
             weights.append(0.35)
 
-        # 2. Vocal Energy RMS (Target: ~0.040 -> 100%)
+        # ============================================================
+        # 2. Vocal Energy RMS — Personal Baseline (25%)
+        # ============================================================
         if voice and voice.get("vocal_energy_rms") is not None:
             rms = voice["vocal_energy_rms"]
-            # 0.010 -> 25%, 0.040 -> 100%
-            v_score = max(10.0, min(100.0, (rms / 0.040) * 100.0))
+            baseline_rms = baseline.get("baseline_vocal_energy_rms")
+
+            if baseline_rms is not None and baseline_rms > 0:
+                rms_deviation = abs(
+                    rms - baseline_rms
+                ) / baseline_rms
+
+                # 100 = normal for this user.
+                v_score = max(
+                    20.0,
+                    min(100.0, 100.0 - (rms_deviation * 200.0))
+                )
+            else:
+                v_score = 70.0
+
             scores.append(v_score)
             weights.append(0.25)
 
-        # 3. Speech Rate WPM (Target: ~145 WPM -> 100%)
+        # ============================================================
+        # 3. Speech Rate — Personal Baseline (20%)
+        # ============================================================
         if voice and voice.get("speech_rate_wpm") is not None:
             wpm = voice["speech_rate_wpm"]
-            # 90 WPM -> 50%, 145 WPM -> 100%, 200 WPM -> 80% (rushed)
-            if wpm <= 145:
-                w_score = max(20.0, min(100.0, (wpm / 145.0) * 100.0))
+            baseline_wpm = baseline.get("baseline_speech_rate_wpm")
+
+            if baseline_wpm is not None and baseline_wpm > 0:
+                wpm_deviation = abs(
+                    wpm - baseline_wpm
+                ) / baseline_wpm
+
+                # 100 = normal speaking rate for this user.
+                w_score = max(
+                    20.0,
+                    min(100.0, 100.0 - (wpm_deviation * 200.0))
+                )
             else:
-                w_score = max(50.0, 100.0 - (wpm - 145.0) * 0.5)
+                w_score = 70.0
+
             scores.append(w_score)
             weights.append(0.20)
 
-        # 4. Text Valence (-1.0 to +1.0 -> 0 to 100%)
+        # ============================================================
+        # 4. Text Valence (20%)
+        # ============================================================
         if text and text.get("emotional_valence") is not None:
             val = text["emotional_valence"]
-            t_score = max(0.0, min(100.0, ((val + 1.0) / 2.0) * 100.0))
+
+            # Text valence is already normalized from -1.0 to +1.0.
+            t_score = max(
+                0.0,
+                min(100.0, ((val + 1.0) / 2.0) * 100.0)
+            )
+
             scores.append(t_score)
             weights.append(0.20)
+
+        # ============================================================
+        # 5. Mood Fallback — Personal Baseline
+        # ============================================================
         elif context.get("mood_score") is not None:
-            # Fallback to self-reported mood
-            m_score = max(10.0, min(100.0, (context["mood_score"] / 10.0) * 100.0))
+            mood = context["mood_score"]
+            baseline_mood = baseline.get("baseline_mood_score")
+
+            if baseline_mood is not None and baseline_mood > 0:
+                mood_deviation = abs(
+                    mood - baseline_mood
+                ) / baseline_mood
+
+                # 100 = normal mood for this user.
+                m_score = max(
+                    20.0,
+                    min(100.0, 100.0 - (mood_deviation * 200.0))
+                )
+            else:
+                m_score = 70.0
+
             scores.append(m_score)
             weights.append(0.20)
 
+        # ============================================================
+        # Final weighted Energy Index
+        # ============================================================
         if not scores:
             return 70.0
 
         total_weight = sum(weights)
-        weighted_sum = sum(s * w for s, w in zip(scores, weights))
-        return round(weighted_sum / total_weight, 1)
+        weighted_sum = sum(
+            score * weight
+            for score, weight in zip(scores, weights)
+        )
 
+        return round(weighted_sum / total_weight, 1)
     @classmethod
     def compute_focus_index(
         cls,
