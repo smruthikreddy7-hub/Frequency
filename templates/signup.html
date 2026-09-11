@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FREQUENCY — Create account</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="auth-shell">
+    <div class="auth-page">
+        <div class="auth-card">
+            <div class="brand brand-auth">
+                <div class="brand-icon">
+                    <span class="pulse-wave"></span>
+                    <span class="pulse-wave wave-2"></span>
+                    <span class="pulse-wave wave-3"></span>
+                </div>
+                <div class="brand-text">
+                    <h1>FREQUENCY</h1>
+                    <span class="tag">Create account</span>
+                </div>
+            </div>
+
+            <div class="auth-header">
+                <h2>Create account</h2>
+                <p>Join the cross-sense workspace.</p>
+            </div>
+
+            {% if error %}
+                <div class="auth-alert" role="alert">
+                    {{ error }}
+                </div>
+            {% endif %}
+
+            <form method="post" action="/signup" class="auth-form" novalidate>
+                <div class="field-group">
+                    <label for="name">Full name</label>
+                    <input id="name" name="name" type="text" value="{{ name or '' }}" placeholder="Your name" required>
+                </div>
+
+                <div class="field-group">
+                    <label for="email">Email address</label>
+                    <input id="email" name="email" type="email" value="{{ email or '' }}" placeholder="you@example.com" required>
+                </div>
+
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" placeholder="At least 8 characters" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Create account</button>
+            </form>
+
+            <div class="auth-meta">
+                <span>Already have an account?</span>
+                <a href="/signin">Sign in</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.querySelector('.auth-form');
+            const nameInput = document.getElementById('name');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+
+            if (!form) return;
+
+            form.addEventListener('submit', function (event) {
+                const name = (nameInput.value || '').trim();
+                const email = (emailInput.value || '').trim();
+                const password = (passwordInput.value || '').trim();
+                const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (!name || !email || !password) {
+                    event.preventDefault();
+                    const alert = document.querySelector('.auth-alert') || document.createElement('div');
+                    alert.className = 'auth-alert';
+                    alert.textContent = 'Please fill in all fields.';
+                    if (!document.querySelector('.auth-alert')) {
+                        form.parentNode.insertBefore(alert, form);
+                    }
+                    return;
+                }
+
+                if (!emailPattern.test(email)) {
+                    event.preventDefault();
+                    const alert = document.querySelector('.auth-alert') || document.createElement('div');
+                    alert.className = 'auth-alert';
+                    alert.textContent = 'Please enter a valid email address.';
+                    if (!document.querySelector('.auth-alert')) {
+                        form.parentNode.insertBefore(alert, form);
+                    }
+                    return;
+                }
+
+                if (password.length < 8) {
+                    event.preventDefault();
+                    const alert = document.querySelector('.auth-alert') || document.createElement('div');
+                    alert.className = 'auth-alert';
+                    alert.textContent = 'Password must be at least 8 characters long.';
+                    if (!document.querySelector('.auth-alert')) {
+                        form.parentNode.insertBefore(alert, form);
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

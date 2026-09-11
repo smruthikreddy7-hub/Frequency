@@ -11,6 +11,15 @@ class Config:
     HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
     PORT = int(os.environ.get("FLASK_PORT", 5000))
     SECRET_KEY = os.environ.get("SECRET_KEY", "frequency-cross-sense-secret-2026")
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    # Authentication + Admin defaults
+    ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminPass!123")
+    LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
+    LOGIN_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "15"))
+    DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "frequency.db"))
     
     # Ollama Local LLM Settings
     OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")

@@ -98,6 +98,15 @@
                     </div>
                 </div>
                 <div class="header-right">
+                    {% if is_authenticated %}
+                    <div class="user-badge">
+                        <span>Logged in as</span>
+                        <strong>{{ user_name }}</strong>
+                        {% if user_role == 'admin' %}
+                        <a href="/admin" class="user-link">Admin</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <!-- 7-Day Trends Dashboard Button -->
                     <button id="toggle-trends-btn" class="btn btn-secondary btn-sm" title="View 7-Day Multi-Modal Trends & Stability">
                         <span>📈 Trends</span>
@@ -115,6 +124,11 @@
                         </svg>
                         <span>Evidence & Fusion</span>
                     </button>
+                    {% if is_authenticated %}
+                    <a href="/logout" class="btn btn-secondary btn-sm" title="Sign out">Logout</a>
+                    {% else %}
+                    <a href="/signin" class="btn btn-primary btn-sm" title="Sign in">Sign in</a>
+                    {% endif %}
                     <span id="backend-latency" class="latency-pill">Latency: -- ms</span>
                 </div>
             </header>

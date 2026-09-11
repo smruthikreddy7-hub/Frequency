@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FREQUENCY — Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="auth-shell">
+    <div class="auth-page">
+        <div class="auth-card">
+            <div class="brand brand-auth">
+                <div class="brand-icon">
+                    <span class="pulse-wave"></span>
+                    <span class="pulse-wave wave-2"></span>
+                    <span class="pulse-wave wave-3"></span>
+                </div>
+                <div class="brand-text">
+                    <h1>FREQUENCY</h1>
+                    <span class="tag">Cross-Sense AI</span>
+                </div>
+            </div>
+
+            <div class="auth-header">
+                <h2>Login</h2>
+                <p>Access your workspace and admin portal.</p>
+            </div>
+
+            {% if error %}
+                <div class="auth-alert" role="alert">
+                    {{ error }}
+                </div>
+            {% endif %}
+
+            {% if signup_closed %}
+                <div class="auth-info">
+                    Registration is currently closed for this demo. Please use the admin account or contact the administrator.
+                </div>
+            {% endif %}
+
+            <form method="post" action="/signin" class="auth-form" novalidate>
+                <div class="field-group">
+                    <label for="email">Email address</label>
+                    <input id="email" name="email" type="email" value="{{ email or '' }}" placeholder="you@example.com" required>
+                </div>
+
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" placeholder="Enter your password" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Sign in</button>
+            </form>
+
+            <div class="auth-meta">
+                <span>Need an account?</span>
+                <a href="/signup">Sign up</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.querySelector('.auth-form');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+
+            if (!form) return;
+
+            form.addEventListener('submit', function (event) {
+                const email = (emailInput.value || '').trim();
+                const password = (passwordInput.value || '').trim();
+                const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (!email || !password) {
+                    event.preventDefault();
+                    const alert = document.querySelector('.auth-alert') || document.createElement('div');
+                    alert.className = 'auth-alert';
+                    alert.textContent = 'Please enter both email and password.';
+                    if (!document.querySelector('.auth-alert')) {
+                        form.parentNode.insertBefore(alert, form);
+                    }
+                    return;
+                }
+
+                if (!emailPattern.test(email)) {
+                    event.preventDefault();
+                    const alert = document.querySelector('.auth-alert') || document.createElement('div');
+                    alert.className = 'auth-alert';
+                    alert.textContent = 'Please enter a valid email address.';
+                    if (!document.querySelector('.auth-alert')) {
+                        form.parentNode.insertBefore(alert, form);
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

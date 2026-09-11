@@ -1,7 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import logging
-from flask import Flask, jsonify, render_template, request, Response, stream_with_context
+import re
+from functools import wraps
+from collections import defaultdict
+
+from flask import Flask, jsonify, render_template, request, Response, stream_with_context, redirect, url_for, session
+
 from config import Config
 from llm_client import LLMClient
 from schema import FrequencyInput, TextSignalData, VoiceSignalData, ContextData, BaselineData, FusionData
@@ -19,6 +24,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger("frequency")
 
+login_attempts = defaultdict(list)
+
+
+def sanitize_text(value, max_length=2000):
+    """Normalize and sanitize raw user input for display/storage."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", text)
+    return text[:max_length]
+
+
+def rate_limited(email):
+    """Basic in-memory login throttling to discourage brute force attempts."""
+    normalized = (email or "").strip().lower()
+    now = datetime.now(timezone.utc)
+    attempts = login_attempts.get(normalized, [])
+    attempts = [ts for ts in attempts if ts > now - timedelta(minutes=Config.LOGIN_LOCKOUT_MINUTES)]
+    login_attempts[normalized] = attempts
+    if len(attempts) >= Config.LOGIN_MAX_ATTEMPTS:
+        return True
+    return False
+
+
+def record_login_failure(email):
+    """Track a failed login for rate limiting."""
+    normalized = (email or "").strip().lower()
+    login_attempts[normalized].append(datetime.now(timezone.utc))
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("signin", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("signin", next=request.path))
+        if session.get("role") != "admin":
+            return redirect(url_for("signin"))
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def create_app(config_class=Config):
     """Application factory for FREQUENCY."""
     app = Flask(
@@ -27,6 +82,9 @@ def create_app(config_class=Config):
         static_folder="static"
     )
     app.config.from_object(config_class)
+    app.secret_key = app.config["SECRET_KEY"]
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     # Initialize LLM Client & Database
     llm_client = LLMClient(
@@ -35,14 +93,110 @@ def create_app(config_class=Config):
     )
     Database.init_db()
 
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        """Authenticate a user and redirect based on role."""
+        if request.method == "GET":
+            return render_template("login.html", error=None, email="")
+
+        email = sanitize_text(request.form.get("email", "")).lower()
+        password = request.form.get("password", "")
+        next_url = request.form.get("next") or request.args.get("next") or ""
+
+        if not email or not password:
+            return render_template("login.html", error="Please enter both email and password.", email=email), 400
+
+        if not re.fullmatch(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            return render_template("login.html", error="Please enter a valid email address.", email=email), 400
+
+        if rate_limited(email):
+            return render_template("login.html", error="Too many attempts. Please wait 15 minutes before trying again.", email=email), 429
+
+        user = Database.authenticate_user(email, password)
+        if not user:
+            record_login_failure(email)
+            return render_template("login.html", error="Invalid email or password.", email=email), 401
+
+        session.clear()
+        session["user_id"] = user["id"]
+        session["user_name"] = user["name"]
+        session["role"] = user["role"]
+
+        redirect_target = "/admin" if user["role"] == "admin" else "/"
+        if next_url and next_url.startswith("/") and next_url not in ("/login", "/signin", "/logout"):
+            redirect_target = next_url
+        return redirect(redirect_target)
+
+    @app.route("/signin", methods=["GET", "POST"])
+    def signin():
+        """Alias sign-in page for the app's authentication flow."""
+        return login()
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("signin"))
+
+    @app.route("/signup", methods=["GET", "POST"])
+    def signup():
+        """Create a new user account and redirect to the main app once registered."""
+        if request.method == "GET":
+            return render_template("signup.html", error=None, name="", email="")
+
+        name = sanitize_text(request.form.get("name", ""))
+        email = sanitize_text(request.form.get("email", "")).lower()
+        password = request.form.get("password", "")
+
+        if not name or not email or not password:
+            return render_template("signup.html", error="Name, email, and password are required.", name=name, email=email), 400
+
+        if not re.fullmatch(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            return render_template("signup.html", error="Please enter a valid email address.", name=name, email=email), 400
+
+        if len(password) < 8:
+            return render_template("signup.html", error="Password must be at least 8 characters long.", name=name, email=email), 400
+
+        try:
+            user = Database.create_user(name=name, email=email, password=password, role="user")
+        except ValueError as exc:
+            return render_template("signup.html", error=str(exc), name=name, email=email), 400
+
+        session.clear()
+        session["user_id"] = user["id"]
+        session["user_name"] = user["name"]
+        session["role"] = user["role"]
+        return redirect(url_for("index"))
+
+    @app.route("/admin")
+    @admin_required
+    def admin_dashboard():
+        """Admin-only dashboard with user and entry analytics."""
+        stats = Database.get_dashboard_stats()
+        users = Database.list_users()
+        entries = Database.list_entries()
+        return render_template(
+            "admin.html",
+            app_name=app.config["APP_NAME"],
+            version=app.config["APP_VERSION"],
+            stats=stats,
+            users=users,
+            entries=entries,
+            admin_name=session.get("user_name", "Administrator")
+        )
+
     @app.route("/")
     def index():
         """Serve the main FREQUENCY conversational reasoning web interface."""
+        user_name = session.get("user_name")
+        user_role = session.get("role")
         return render_template(
             "index.html",
             app_name=app.config["APP_NAME"],
             version=app.config["APP_VERSION"],
-            default_model=app.config["DEFAULT_LLM_MODEL"]
+            default_model=app.config["DEFAULT_LLM_MODEL"],
+            user_name=user_name,
+            user_role=user_role,
+            is_authenticated=bool(session.get("user_id"))
         )
 
     @app.route("/api/status", methods=["GET"])

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FREQUENCY — Admin Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body class="admin-shell">
+    <div class="admin-layout">
+        <aside class="admin-sidebar">
+            <div class="brand brand-admin">
+                <div class="brand-icon">
+                    <span class="pulse-wave"></span>
+                    <span class="pulse-wave wave-2"></span>
+                    <span class="pulse-wave wave-3"></span>
+                </div>
+
+                <div class="brand-text">
+                    <h1>FREQUENCY</h1>
+                    <span class="tag">Admin Portal</span>
+                </div>
+            </div>
+
+            <nav class="admin-nav">
+                <a href="/admin" class="nav-item active">Overview</a>
+                <a href="/" class="nav-item">Main Console</a>
+                <a href="/logout" class="nav-item danger">Logout</a>
+            </nav>
+        </aside>
+
+        <main class="admin-main">
+            <header class="admin-topbar">
+                <div>
+                    <p class="eyebrow">Operations</p>
+                    <h2>Admin Dashboard</h2>
+                </div>
+
+                <div class="user-pill">{{ admin_name }}</div>
+            </header>
+
+            <section class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-label">Total registered users</span>
+                    <strong>{{ stats.total_users }}</strong>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">New signups</span>
+                    <strong>{{ stats.signups_by_day | length }}</strong>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">Active (7 days)</span>
+                    <strong>{{ stats.active_7_days }}</strong>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">Total entries</span>
+                    <strong>{{ stats.total_entries }}</strong>
+                </div>
+            </section>
+
+            <section class="analytics-grid">
+                <div class="panel chart-panel">
+                    <div class="panel-header">
+                        <h3>New signups over time</h3>
+                    </div>
+
+                    <div id="signup-chart" class="bar-chart">
+                        {% for item in stats.signups_by_day %}
+                            <div class="chart-column" title="{{ item.date }}: {{ item.count }} signups">
+                                <span class="chart-bar" style="height: {{ ((item.count|int) * 100 / (stats.signups_by_day|map(attribute='count')|list|max if stats.signups_by_day else 1))|round(0, 'floor') }}%"></span>
+                                <span class="chart-label">{{ item.date[-2:] }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="panel summary-panel">
+                    <div class="panel-header">
+                        <h3>Engagement</h3>
+                    </div>
+
+                    <div class="summary-list">
+                        <div>
+                            <span>Active last 30 days</span>
+                            <strong>{{ stats.active_30_days }}</strong>
+                        </div>
+
+                        <div>
+                            <span>Avg. entries per user</span>
+                            <strong>{{ ((stats.total_entries / stats.total_users) if stats.total_users else 0) | round(2) }}</strong>
+                        </div>
+
+                        <div>
+                            <span>Admin accounts</span>
+                            <strong>{{ users | selectattr('role', 'equalto', 'admin') | list | length }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel table-panel">
+                <div class="panel-header table-header">
+                    <h3>Users</h3>
+                    <input type="search" class="table-search" data-table-target="users-table" placeholder="Search users...">
+                </div>
+
+                <div class="table-wrap">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Joined</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for user in users %}
+                                <tr>
+                                    <td>{{ user.name }}</td>
+                                    <td>{{ user.email }}</td>
+                                    <td>
+                                        <span class="role-pill {{ user.role }}">{{ user.role }}</span>
+                                    </td>
+                                    <td>{{ user.created_at[:10] if user.created_at else '—' }}</td>
+                                    <td>{{ user.status or 'inactive' }}</td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="5">No users found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel table-panel">
+                <div class="panel-header table-header">
+                    <h3>Entries</h3>
+                    <input type="search" class="table-search" data-table-target="entries-table" placeholder="Search entries...">
+                </div>
+
+                <div class="table-wrap">
+                    <table id="entries-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>User</th>
+                                <th>Type</th>
+                                <th>Date</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for item in entries %}
+                                <tr
+                                    data-entry-title="{{ item.title | e }}"
+                                    data-entry-content="{{ item.content | e }}"
+                                    data-entry-type="{{ item.entry_type | e }}"
+                                    data-entry-user="{{ item.user_name | e }}"
+                                    data-entry-email="{{ item.user_email | e }}"
+                                    data-entry-date="{{ item.created_at[:10] if item.created_at else '—' }}"
+                                >
+                                    <td>{{ item.title }}</td>
+                                    <td>{{ item.user_name }}</td>
+                                    <td>{{ item.entry_type }}</td>
+                                    <td>{{ item.created_at[:10] if item.created_at else '—' }}</td>
+                                    <td>
+                                        <button class="btn btn-secondary btn-sm view-entry-btn" data-entry-id="{{ item.id }}" type="button">
+                                            View
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="5">No entries found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="entry-modal" class="entry-modal hidden">
+        <div class="entry-modal-card">
+            <div class="panel-header modal-header">
+                <h3 id="entry-modal-title">Entry details</h3>
+                <button type="button" class="btn-icon-only" id="close-entry-modal">&times;</button>
+            </div>
+
+            <div class="entry-modal-body">
+                <div class="entry-detail-row">
+                    <span>User</span>
+                    <strong id="entry-user">—</strong>
+                </div>
+
+                <div class="entry-detail-row">
+                    <span>Email</span>
+                    <strong id="entry-email">—</strong>
+                </div>
+
+                <div class="entry-detail-row">
+                    <span>Type</span>
+                    <strong id="entry-type">—</strong>
+                </div>
+
+                <div class="entry-detail-row">
+                    <span>Date</span>
+                    <strong id="entry-date">—</strong>
+                </div>
+
+                <div class="entry-content-box">
+                    <h4>Content</h4>
+                    <p id="entry-content">—</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const searchInputs = document.querySelectorAll('.table-search');
+
+            searchInputs.forEach(function (input) {
+                input.addEventListener('input', function () {
+                    const tableId = input.dataset.tableTarget;
+                    const table = document.getElementById(tableId);
+
+                    if (!table) return;
+
+                    const query = (input.value || '').toLowerCase();
+                    const rows = table.querySelectorAll('tbody tr');
+
+                    rows.forEach(function (row) {
+                        const text = row.textContent.toLowerCase();
+                        row.style.display = text.includes(query) ? '' : 'none';
+                    });
+                });
+            });
+
+            const modal = document.getElementById('entry-modal');
+            const closeModalButton = document.getElementById('close-entry-modal');
+            const viewButtons = document.querySelectorAll('.view-entry-btn');
+
+            const modalTitle = document.getElementById('entry-modal-title');
+            const modalUser = document.getElementById('entry-user');
+            const modalEmail = document.getElementById('entry-email');
+            const modalType = document.getElementById('entry-type');
+            const modalDate = document.getElementById('entry-date');
+            const modalContent = document.getElementById('entry-content');
+
+            viewButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    const row = button.closest('tr');
+
+                    modalTitle.textContent = row.dataset.entryTitle || 'Entry details';
+                    modalUser.textContent = row.dataset.entryUser || '—';
+                    modalEmail.textContent = row.dataset.entryEmail || '—';
+                    modalType.textContent = row.dataset.entryType || '—';
+                    modalDate.textContent = row.dataset.entryDate || '—';
+                    modalContent.textContent = row.dataset.entryContent || '—';
+
+                    modal.classList.remove('hidden');
+                });
+            });
+
+            closeModalButton.addEventListener('click', function () {
+                modal.classList.add('hidden');
+            });
+
+            modal.addEventListener('click', function (event) {
+                if (event.target === modal) {
+                    modal.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

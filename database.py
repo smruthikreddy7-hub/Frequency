@@ -4,7 +4,11 @@ import json
 from datetime import datetime, date, timezone, timedelta
 from typing import Dict, Any, List, Optional, Union
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "frequency.db")
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from config import Config
+
+DB_FILE = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "frequency.db"))
 
 class Database:
     """
@@ -24,6 +28,32 @@ class Database:
         """Initialize required database tables."""
         with cls.get_connection() as conn:
             cursor = conn.cursor()
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT,
+                    status TEXT NOT NULL DEFAULT 'active'
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    entry_type TEXT NOT NULL DEFAULT 'general',
+                    metadata_json TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+            """)
             
             # 1. Daily Context Table (Phase 4)
             cursor.execute("""
@@ -63,12 +93,203 @@ class Database:
                 )
             """)
 
+            cls._ensure_demo_admin(cursor)
+
             # Insert sample historical context records if empty (to establish a rich 7-day baseline)
             cursor.execute("SELECT COUNT(*) as count FROM daily_context")
             if cursor.fetchone()["count"] == 0:
                 cls._seed_default_history(cursor)
 
+            cls._seed_demo_entries(cursor)
             conn.commit()
+
+    @classmethod
+    def _ensure_demo_admin(cls, cursor: sqlite3.Cursor):
+        """Create the default admin account if it does not already exist."""
+        admin_email = (Config.ADMIN_EMAIL or "admin@example.com").strip().lower()
+        admin_name = "System Administrator"
+        existing = cursor.execute(
+            "SELECT id FROM users WHERE email = ?",
+            (admin_email,)
+        ).fetchone()
+        if existing:
+            cursor.execute(
+                "UPDATE users SET role = 'admin', name = ?, status = 'active' WHERE email = ?",
+                (admin_name, admin_email)
+            )
+            return
+
+        password_hash = generate_password_hash(Config.ADMIN_PASSWORD, method="pbkdf2:sha256")
+        cursor.execute(
+            """
+            INSERT INTO users (name, email, password_hash, role, created_at, last_login_at, status)
+            VALUES (?, ?, ?, 'admin', ?, NULL, 'active')
+            """,
+            (admin_name, admin_email, password_hash, datetime.now(timezone.utc).isoformat())
+        )
+
+    @classmethod
+    def _seed_demo_entries(cls, cursor: sqlite3.Cursor):
+        """Seed entry data for admin dashboard examples."""
+        existing_count = cursor.execute("SELECT COUNT(*) as count FROM entries").fetchone()["count"]
+        if existing_count > 0:
+            return
+
+        admin_user = cursor.execute(
+            "SELECT id FROM users WHERE email = ?",
+            ((Config.ADMIN_EMAIL or "admin@example.com").strip().lower(),)
+        ).fetchone()
+        if not admin_user:
+            return
+        admin_id = admin_user["id"]
+        now = datetime.now(timezone.utc)
+        sample_entries = [
+            (admin_id, "Morning check-in", "Sleep quality was strong and the plan for today is clear.", "wellbeing", {"source": "web"}),
+            (admin_id, "Customer feedback", "Users want clearer onboarding and faster status updates.", "feedback", {"source": "support"}),
+            (admin_id, "Product note", "The reasoning console is more consistent when context is logged before prompting.", "note", {"source": "product"}),
+            (admin_id, "Research insight", "Cross-sense alignments track best when sleep and workload are recorded daily.", "research", {"source": "analysis"})
+        ]
+        for user_id, title, content, entry_type, metadata in sample_entries:
+            cursor.execute(
+                """
+                INSERT INTO entries (user_id, title, content, entry_type, metadata_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, title, content, entry_type, json.dumps(metadata), (now - timedelta(days=len(sample_entries) - 1)).isoformat())
+            )
+
+    @classmethod
+    def create_user(cls, name: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
+        """Create a new application user with a hashed password."""
+        normalized_email = (email or "").strip().lower()
+        name_str = (name or "").strip()
+        if not normalized_email or not name_str or not password:
+            raise ValueError("Name, email, and password are required.")
+
+        with cls.get_connection() as conn:
+            cursor = conn.cursor()
+            existing = cursor.execute("SELECT id FROM users WHERE email = ?", (normalized_email,)).fetchone()
+            if existing:
+                raise ValueError("A user with that email already exists.")
+
+            password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+            now_str = datetime.now(timezone.utc).isoformat()
+            cursor.execute(
+                """
+                INSERT INTO users (name, email, password_hash, role, created_at, last_login_at, status)
+                VALUES (?, ?, ?, ?, ?, NULL, 'active')
+                """,
+                (name_str, normalized_email, password_hash, role, now_str)
+            )
+            conn.commit()
+            user = conn.execute("SELECT * FROM users WHERE email = ?", (normalized_email,)).fetchone()
+            return dict(user) if user else None
+
+    @classmethod
+    def get_user_by_id(cls, user_id: int) -> Optional[Dict[str, Any]]:
+        with cls.get_connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            return dict(row) if row else None
+
+    @classmethod
+    def get_user_by_email(cls, email: str) -> Optional[Dict[str, Any]]:
+        normalized_email = (email or "").strip().lower()
+        if not normalized_email:
+            return None
+        with cls.get_connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE LOWER(email) = ?", (normalized_email,)).fetchone()
+            return dict(row) if row else None
+
+    @classmethod
+    def authenticate_user(cls, email: str, password: str) -> Optional[Dict[str, Any]]:
+        user = cls.get_user_by_email(email)
+        if not user:
+            return None
+        if not check_password_hash(user["password_hash"], password):
+            return None
+        cls.update_last_login(user["id"])
+        return cls.get_user_by_id(user["id"])
+
+    @classmethod
+    def update_last_login(cls, user_id: int):
+        with cls.get_connection() as conn:
+            conn.execute(
+                "UPDATE users SET last_login_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), user_id)
+            )
+            conn.commit()
+
+    @classmethod
+    def list_users(cls) -> List[Dict[str, Any]]:
+        with cls.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, name, email, role, created_at, last_login_at,
+                       CASE WHEN last_login_at IS NOT NULL AND datetime(last_login_at) >= datetime('now', '-30 days') THEN 'active' ELSE 'inactive' END AS status
+                FROM users
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @classmethod
+    def list_entries(cls) -> List[Dict[str, Any]]:
+        with cls.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT e.id, e.user_id, u.name as user_name, u.email as user_email, e.title, e.content, e.entry_type, e.metadata_json, e.created_at
+                FROM entries e
+                JOIN users u ON u.id = e.user_id
+                ORDER BY e.created_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @classmethod
+    def create_entry(cls, user_id: int, title: str, content: str, entry_type: str = "general", metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        with cls.get_connection() as conn:
+            cursor = conn.cursor()
+            now_str = datetime.now(timezone.utc).isoformat()
+            cursor.execute(
+                """
+                INSERT INTO entries (user_id, title, content, entry_type, metadata_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, title[:120], content[:2000], entry_type, json.dumps(metadata or {}), now_str)
+            )
+            entry_id = cursor.lastrowid
+            conn.commit()
+            entry = conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+            return dict(entry)
+
+    @classmethod
+    def get_dashboard_stats(cls) -> Dict[str, Any]:
+        with cls.get_connection() as conn:
+            total_users = conn.execute("SELECT COUNT(*) as count FROM users").fetchone()["count"]
+            total_entries = conn.execute("SELECT COUNT(*) as count FROM entries").fetchone()["count"]
+            active_7 = conn.execute(
+                "SELECT COUNT(*) as count FROM users WHERE last_login_at IS NOT NULL AND datetime(last_login_at) >= datetime('now', '-7 days')"
+            ).fetchone()["count"]
+            active_30 = conn.execute(
+                "SELECT COUNT(*) as count FROM users WHERE last_login_at IS NOT NULL AND datetime(last_login_at) >= datetime('now', '-30 days')"
+            ).fetchone()["count"]
+            signups_series = conn.execute(
+                """
+                SELECT DATE(created_at) as date, COUNT(*) as count
+                FROM users
+                GROUP BY DATE(created_at)
+                ORDER BY date ASC
+                LIMIT 30
+                """
+            ).fetchall()
+
+            return {
+                "total_users": total_users,
+                "total_entries": total_entries,
+                "active_7_days": active_7,
+                "active_30_days": active_30,
+                "signups_by_day": [dict(row) for row in signups_series],
+            }
 
     @classmethod
     def _seed_default_history(cls, cursor: sqlite3.Cursor):
